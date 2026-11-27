@@ -34,6 +34,10 @@ _tg_session.mount(
 )
 
 
+def _log(tag: str, msg: str, color: str = ""):
+    print(f"[{tag}] {msg}", flush=True)
+
+
 def list_groups():
     groups = []
     for item in TARGET_GROUPS_RAW.split(","):
@@ -122,15 +126,6 @@ def detect_country_meta(num_str: str):
     return ("🌐", "Unknown", "INTL")
 
 
-def escape_html(text: str) -> str:
-    return (
-        (text or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
-
-
 def build_otp_message(
     otp: str,
     svc: dict,
@@ -146,15 +141,15 @@ def build_otp_message(
     if len(raw_num) >= 8:
         phone_formatted = f"<b>{raw_num[:4]}•🕷️•{raw_num[-4:]}</b>"
     else:
-        phone_formatted = f"<b>{escape_html(raw_num or str(masked_num))}</b>"
+        phone_formatted = f"<b>{raw_num}</b>"
 
     prefix = raw_num[:6] if len(raw_num) >= 6 else raw_num
-    clean_sms = escape_html(sms_text.replace("<#>", "").strip())
+    clean_sms = sms_text.replace("<#>", "").strip()
 
     # Baris 1: Header, Baris 2: Prefix, Baris 3: Isi SMS
     return (
-        f"¤ {flag} <b>{escape_html(region_code)}</b> ¤ {phone_formatted} ¤\n"
-        f"<b>Prefix:</b> <tg-spoiler>{escape_html(prefix)}</tg-spoiler>\n"
+        f"¤ {flag} <b>{region_code}</b> ¤ {phone_formatted} ¤\n"
+        f"<b>Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>\n"
         f"<blockquote>{clean_sms}</blockquote>"
     )
 
@@ -168,7 +163,6 @@ def _tg_post(chat_id, text, reply_markup=None, retries=3):
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
-
     for attempt in range(retries):
         try:
             r = _tg_session.post(
@@ -183,29 +177,11 @@ def _tg_post(chat_id, text, reply_markup=None, retries=3):
                 wait = data.get("parameters", {}).get("retry_after", 5)
                 time.sleep(wait + 1)
                 continue
-
-            # Fallback kalau reply_markup / tag HTML ditolak Telegram
-            if reply_markup and attempt == 0:
-                clean_kb = {
-                    "inline_keyboard": [
-                        [
-                            {k: v for k, v in btn.items() if k != "style"}
-                            for btn in row
-                        ]
-                        for row in reply_markup.get("inline_keyboard", [])
-                    ]
-                }
-                payload["reply_markup"] = clean_kb
-                continue
-
-            print(
-                f"[TG-ERR] chat {chat_id}: {data.get('description', '?')}",
-                flush=True,
-            )
+            _log("TG-ERR", f"chat {chat_id}: {data.get('description', '?')}")
             return False
         except Exception as e:
             if attempt == retries - 1:
-                print(f"[TG-ERR] chat {chat_id}: {e}", flush=True)
+                _log("TG-ERR", f"chat {chat_id}: {e}")
             else:
                 time.sleep(1.5 ** (attempt + 1))
     return False
@@ -216,32 +192,42 @@ def tg_send_msg(chat_id: int, text: str):
 
 
 def tg_send_otp(otp: str, msg_text: str):
-    rows = []
-    if otp and otp != "-":
-        rows.append([
-            {
-                "text": f"📩 {otp}",
-                "copy_text": {"text": otp},
-            }
-        ])
-    rows.append([
-        {
-            "text": "📁 All Files",
-            "url": "https://t.me/matchaappp",
-        }
-    ])
-    kb = {"inline_keyboard": rows}
+    kb = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": f"📩 {otp}",
+                    "copy_text": {
+                        "text": otp
+                    },
+                    "style": "primary"
+                }
+            ],
+            [
+                {
+                    "text": "📁 All Files",
+                    "url": "https://t.me/matchaappp",
+                    "style": "success"
+                }
+            ]
+        ]
+    }
 
     targets = list_groups()
 
     def _send_one(cid):
-        ok = _tg_post(cid, msg_text, reply_markup=kb)
-        print(f"[TG-SEND] chat={cid} ok={ok}", flush=True)
+        _tg_post(
+            cid,
+            msg_text,
+            reply_markup=kb
+        )
 
     if len(targets) == 1:
         _send_one(targets[0])
     elif targets:
-        with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
+        with ThreadPoolExecutor(
+            max_workers=min(8, len(targets))
+        ) as pool:
             list(pool.map(_send_one, targets))
 
 
