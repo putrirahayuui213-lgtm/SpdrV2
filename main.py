@@ -2,223 +2,179 @@ import hashlib
 import hmac
 import json
 import os
-import re
-import time
-from concurrent.futures import ThreadPoolExecutor
-
-import requests
 from flask import Flask, jsonify, request
+import requests
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
-IVAS_WEBHOOK_SECRET = os.getenv("IVAS_WEBHOOK_SECRET", "")
-TARGET_GROUPS = [
-    int(x.strip())
-    for x in os.getenv("TARGET_GROUPS", "-1005842100073").split(",")
-    if x.strip()
-]
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+TARGET_GROUPS_RAW = os.getenv("TARGET_GROUPS", "-1005842100073").strip()
+IVAS_WEBHOOK_SECRET = os.getenv("IVAS_WEBHOOK_SECRET", "").strip()
+PORT = int(os.getenv("PORT", "8080"))
 
-# --- 1. Telegram Session & Sender ---
-_tg_session = requests.Session()
-_tg_session.mount(
-    "https://",
-    requests.adapters.HTTPAdapter(
-        pool_connections=4,
-        pool_maxsize=10,
-        max_retries=0,
-    ),
-)
+# Ubah ke True kalau sudah tahu format signature IVAS yang exact
+VERIFY_SIGNATURE = False
 
 
-def _log(tag: str, msg: str):
-    print(f"[{tag}] {msg}", flush=True)
+def get_target_groups():
+    groups = []
+    for item in TARGET_GROUPS_RAW.split(","):
+        chat_id = item.strip()
+        if chat_id:
+            groups.append(chat_id)
+    return groups
 
 
-def list_groups() -> list[int]:
-    return TARGET_GROUPS
-
-
-def _tg_post(chat_id, text, reply_markup=None, retries=3):
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-
-    for attempt in range(retries):
-        try:
-            r = _tg_session.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json=payload,
-                timeout=10,
-            )
-            data = r.json()
-            if data.get("ok"):
-                return True
-            if r.status_code == 429:
-                wait = data.get("parameters", {}).get("retry_after", 5)
-                time.sleep(wait + 1)
-                continue
-            _log("TG-ERR", f"chat {chat_id}: {data.get('description', '?')}")
-            return False
-        except Exception as e:
-            if attempt == retries - 1:
-                _log("TG-ERR", f"chat {chat_id}: {e}")
-            else:
-                time.sleep(1.5 ** (attempt + 1))
-    return False
-
-
-def tg_send_otp(otp: str, msg_text: str):
-    kb = {
-        "inline_keyboard": [
-            [
-                {
-                    "text": f"📩 {otp}",
-                    "copy_text": {"text": otp},
-                    "style": "primary",
-                }
-            ],
-            [
-                {
-                    "text": "📁 All Files",
-                    "url": "https://t.me/matchaappp",
-                    "style": "success",
-                }
-            ],
-        ]
-    }
-
-    targets = list_groups()
-
-    def _send_one(cid):
-        _tg_post(cid, msg_text, reply_markup=kb)
-
-    if len(targets) == 1:
-        _send_one(targets[0])
-    elif targets:
-        with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
-            list(pool.map(_send_one, targets))
-
-
-# --- 2. Template Pesan ---
-def build_otp_message(
-    otp: str,
-    svc: dict,
-    flag: str,
-    country: str,
-    region_code: str,
-    masked_num: str,
-    sms_text: str = "",
-) -> str:
-    raw_num = re.sub(r"\D", "", str(masked_num))
-
-    if len(raw_num) >= 8:
-        phone_formatted = f"<b>{raw_num[:4]}•🕷️•{raw_num[-4:]}</b>"
-    else:
-        phone_formatted = f"<b>{raw_num}</b>"
-
-    prefix = raw_num[:6] if len(raw_num) >= 6 else raw_num
-    clean_sms = sms_text.replace("<#>", "").strip()
-
-    return (
-        f"¤ {flag} <b>{region_code}</b> ¤ {phone_formatted} ¤\n"
-        f"<b>Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>\n"
-        f"<blockquote>{clean_sms}</blockquote>"
-    )
-
-
-# --- 3. Helper OTP & Region ---
-def extract_otp(sms_text: str) -> str:
-    if not sms_text:
-        return "----"
-    m = re.search(r"\b(?:[A-Z]-)?(\d{4,8})\b", sms_text)
-    if m:
-        return m.group(0) if "-" in m.group(0) else m.group(1)
-    return "----"
-
-
-COUNTRY_MAP = {
-    "MOZAMBIQUE": ("🇲🇿", "MZ"),
-    "INDONESIA": ("🇮🇩", "ID"),
-    "MALI": ("🇲🇱", "ML"),
-    "CONGO": ("🇨🇩", "CD"),
-    "DRC": ("🇨🇩", "CD"),
-}
-
-
-def resolve_region(range_name: str, number: str) -> tuple[str, str, str]:
-    upper_range = (range_name or "").upper()
-    for name, (flag, code) in COUNTRY_MAP.items():
-        if name in upper_range:
-            return flag, name.title(), code
-
-    first_word = (range_name or "").strip().split(" ")[0].upper()
-    if first_word:
-        return "🌍", first_word.title(), first_word[:2]
-
-    digits = re.sub(r"\D", "", str(number))
-    return "🌍", "Unknown", digits[:2] or "XX"
-
-
-# --- 4. Webhook Verification & Endpoint ---
-def verify_signature(raw_body: bytes, sig_header: str, secret: str) -> bool:
-    if not secret:
+def verify_signature(raw_body: bytes, headers) -> bool:
+    if not VERIFY_SIGNATURE or not IVAS_WEBHOOK_SECRET:
         return True
-    if not sig_header:
+
+    sig = (
+        headers.get("X-IVAS-Signature")
+        or headers.get("X-Ivas-Signature")
+        or headers.get("X-Signature-256")
+        or headers.get("X-Signature")
+        or ""
+    ).strip()
+
+    if not sig:
         return False
-    expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
-    provided = sig_header.replace("sha256=", "").strip()
-    return hmac.compare_digest(expected, provided)
+
+    if sig.startswith("sha256="):
+        sig = sig.split("=", 1)[1].strip()
+
+    expected_hex = hmac.new(
+        IVAS_WEBHOOK_SECRET.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+
+    return hmac.compare_digest(expected_hex.lower(), sig.lower())
+
+
+def extract_message_text(payload) -> str:
+    if isinstance(payload, dict):
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+
+        event_name = (
+            payload.get("event")
+            or payload.get("type")
+            or data.get("event")
+            or "webhook.event"
+        )
+        sender = (
+            data.get("from")
+            or data.get("sender")
+            or data.get("cli")
+            or data.get("number")
+            or "-"
+        )
+        recipient = (
+            data.get("to")
+            or data.get("recipient")
+            or data.get("did")
+            or "-"
+        )
+        body = (
+            data.get("message")
+            or data.get("text")
+            or data.get("body")
+            or data.get("sms")
+            or data.get("otp")
+        )
+
+        if body:
+            return (
+                f"📩 *IVAS Event:* `{event_name}`\n"
+                f"📱 *From:* `{sender}`\n"
+                f"📥 *To:* `{recipient}`\n"
+                f"💬 *Message:*\n`{body}`"
+            )
+
+        pretty = json.dumps(payload, indent=2, ensure_ascii=False)
+        if len(pretty) > 3500:
+            pretty = pretty[:3500] + "\n... (truncated)"
+        return f"📩 *IVAS Webhook Payload:*\n```json\n{pretty}\n```"
+
+    text = str(payload)
+    if len(text) > 3500:
+        text = text[:3500] + "\n... (truncated)"
+    return f"📩 *IVAS Raw Payload:*\n```\n{text}\n```"
+
+
+def send_telegram_message(chat_id: str, text: str):
+    if not BOT_TOKEN:
+        return False, "BOT_TOKEN is missing"
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    resp = requests.post(
+        url,
+        json={
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        },
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        # Fallback tanpa Markdown kalau ada karakter spesial yang bikin parse error
+        resp = requests.post(
+            url,
+            json={
+                "chat_id": chat_id,
+                "text": text.replace("*", "").replace("`", ""),
+                "disable_web_page_preview": True,
+            },
+            timeout=15,
+        )
+    return resp.ok, resp.text
+
+
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({"status": "ok", "service": "SpdrV2"}), 200
 
 
 @app.route("/webhook/ivas", methods=["POST"])
-def ivas_webhook():
-    raw_body = request.get_data()
-    sig_header = request.headers.get("X-IVAS-Signature", "")
-    event_name = request.headers.get("X-IVAS-Event", "")
+def webhook_ivas():
+    raw_body = request.get_data() or b""
+    headers_dict = {k: v for k, v in request.headers.items()}
 
-    if not verify_signature(raw_body, sig_header, IVAS_WEBHOOK_SECRET):
-        _log("AUTH-ERR", "Invalid signature")
-        return jsonify({"ok": False, "error": "invalid signature"}), 401
+    print("[IVAS-DEBUG] Headers:", json.dumps(headers_dict, ensure_ascii=False), flush=True)
+    print("[IVAS-DEBUG] Raw body:", raw_body.decode("utf-8", errors="replace"), flush=True)
 
-    try:
-        body = json.loads(raw_body.decode("utf-8"))
-    except Exception:
-        return jsonify({"ok": False, "error": "invalid json"}), 400
+    if not verify_signature(raw_body, request.headers):
+        print("[AUTH-ERR] Invalid signature", flush=True)
+        return jsonify({"error": "invalid signature", "ok": False}), 401
 
-    event = body.get("event") or event_name
-    data = body.get("data") or {}
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+    elif request.form:
+        payload = request.form.to_dict()
+    else:
+        raw_text = raw_body.decode("utf-8", errors="replace").strip()
+        try:
+            payload = json.loads(raw_text) if raw_text else {}
+        except Exception:
+            payload = raw_text
 
-    if event and event != "message.received":
-        return jsonify({"ok": True, "ignored_event": event}), 200
+    message_text = extract_message_text(payload)
+    groups = get_target_groups()
 
-    sms_text = str(data.get("message", ""))
-    number = str(data.get("number", ""))
-    range_name = str(data.get("range_name", ""))
-    source = str(data.get("source", "SMS"))
+    if not groups:
+        return jsonify({"error": "no target groups configured", "ok": False}), 400
 
-    otp = extract_otp(sms_text)
-    flag, country, region_code = resolve_region(range_name, number)
+    results = []
+    for gid in groups:
+        ok, info = send_telegram_message(gid, message_text)
+        print(f"[TG-SEND] group={gid} ok={ok} info={info}", flush=True)
+        results.append({"group": gid, "ok": ok})
 
-    msg_text = build_otp_message(
-        otp=otp,
-        svc={"source": source, "raw": data},
-        flag=flag,
-        country=country,
-        region_code=region_code,
-        masked_num=number,
-        sms_text=sms_text,
-    )
-
-    tg_send_otp(otp, msg_text)
-    return jsonify({"ok": True}), 200
+    all_ok = all(r["ok"] for r in results)
+    return jsonify({"ok": all_ok, "results": results}), (200 if all_ok else 500)
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8080"))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=PORT, debug=False)
+    
