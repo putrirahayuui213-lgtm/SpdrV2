@@ -14,18 +14,196 @@ app = Flask(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 TARGET_GROUPS_RAW = os.getenv("TARGET_GROUPS", "-1005842100073").strip()
 IVAS_WEBHOOK_SECRET = os.getenv("IVAS_WEBHOOK_SECRET", "").strip()
+IVAS_SECRETS_RAW = os.getenv("IVAS_SECRETS", "").strip()
 PORT = int(os.getenv("PORT", "8080"))
 
 # Ubah ke True kalau sudah tahu format signature IVAS yang exact
 VERIFY_SIGNATURE = False
 
+# Urutkan dari kode terpanjang ke terpendek agar prefix tidak tertukar
 COUNTRY_INFO = {
-    "256": ("🇺🇬", "Uganda", "UG"),
+    "1242": ("🇧🇸", "Bahamas", "BS"),
+    "1246": ("🇧🇧", "Barbados", "BB"),
+    "1268": ("🇦🇬", "Antigua & Barbuda", "AG"),
+    "1876": ("🇯🇲", "Jamaica", "JM"),
+    "1868": ("🇹🇹", "Trinidad & Tobago", "TT"),
+    "212": ("🇲🇦", "Morocco", "MA"),
+    "213": ("🇩🇿", "Algeria", "DZ"),
+    "216": ("🇹🇳", "Tunisia", "TN"),
+    "218": ("🇱🇾", "Libya", "LY"),
+    "220": ("🇬🇲", "Gambia", "GM"),
+    "221": ("🇸🇳", "Senegal", "SN"),
+    "222": ("🇲🇷", "Mauritania", "MR"),
     "223": ("🇲🇱", "Mali", "ML"),
-    "593": ("🇪🇨", "Ecuador", "EC"),
+    "224": ("🇬🇳", "Guinea", "GN"),
+    "225": ("🇨🇮", "Cote d'Ivoire", "CI"),
+    "226": ("🇧🇫", "Burkina Faso", "BF"),
+    "227": ("🇳🇪", "Niger", "NE"),
+    "228": ("🇹🇬", "Togo", "TG"),
+    "229": ("🇧🇯", "Benin", "BJ"),
+    "230": ("🇲🇺", "Mauritius", "MU"),
+    "231": ("🇱🇷", "Liberia", "LR"),
+    "232": ("🇸🇱", "Sierra Leone", "SL"),
+    "233": ("🇬🇭", "Ghana", "GH"),
+    "234": ("🇳🇬", "Nigeria", "NG"),
+    "235": ("🇹🇩", "Chad", "TD"),
+    "236": ("🇨🇫", "Central African Rep.", "CF"),
+    "237": ("🇨🇲", "Cameroon", "CM"),
+    "238": ("🇨🇻", "Cape Verde", "CV"),
+    "239": ("🇸🇹", "Sao Tome & Principe", "ST"),
+    "240": ("🇬🇶", "Equatorial Guinea", "GQ"),
+    "241": ("🇬🇦", "Gabon", "GA"),
+    "242": ("🇨🇬", "Congo", "CG"),
     "243": ("🇨🇩", "DR Congo", "CD"),
+    "244": ("🇦🇴", "Angola", "AO"),
+    "245": ("🇬🇼", "Guinea-Bissau", "GW"),
+    "248": ("🇸🇨", "Seychelles", "SC"),
+    "249": ("🇸🇩", "Sudan", "SD"),
+    "250": ("🇷🇼", "Rwanda", "RW"),
+    "251": ("🇪🇹", "Ethiopia", "ET"),
+    "252": ("🇸🇴", "Somalia", "SO"),
+    "253": ("🇩🇯", "Djibouti", "DJ"),
+    "254": ("🇰🇪", "Kenya", "KE"),
+    "255": ("🇹🇿", "Tanzania", "TZ"),
+    "256": ("🇺🇬", "Uganda", "UG"),
+    "257": ("🇧🇮", "Burundi", "BI"),
+    "258": ("🇲🇿", "Mozambique", "MZ"),
+    "260": ("🇿🇲", "Zambia", "ZM"),
+    "261": ("🇲🇬", "Madagascar", "MG"),
+    "263": ("🇿🇼", "Zimbabwe", "ZW"),
+    "264": ("🇳🇦", "Namibia", "NA"),
+    "265": ("🇲🇼", "Malawi", "MW"),
+    "266": ("🇱🇸", "Lesotho", "LS"),
+    "267": ("🇧🇼", "Botswana", "BW"),
+    "268": ("🇸🇿", "Eswatini", "SZ"),
+    "269": ("🇰🇲", "Comoros", "KM"),
+    "351": ("🇵🇹", "Portugal", "PT"),
+    "352": ("🇱🇺", "Luxembourg", "LU"),
+    "353": ("🇮🇪", "Ireland", "IE"),
+    "354": ("🇮🇸", "Iceland", "IS"),
+    "355": ("🇦🇱", "Albania", "AL"),
+    "356": ("🇲🇹", "Malta", "MT"),
+    "357": ("🇨🇾", "Cyprus", "CY"),
+    "358": ("🇫🇮", "Finland", "FI"),
+    "359": ("🇧🇬", "Bulgaria", "BG"),
+    "370": ("🇱🇹", "Lithuania", "LT"),
+    "371": ("🇱🇻", "Latvia", "LV"),
+    "372": ("🇪🇪", "Estonia", "EE"),
+    "373": ("🇲🇩", "Moldova", "MD"),
+    "374": ("🇦🇲", "Armenia", "AM"),
+    "375": ("🇧🇾", "Belarus", "BY"),
+    "380": ("🇺🇦", "Ukraine", "UA"),
+    "381": ("🇷🇸", "Serbia", "RS"),
+    "385": ("🇭🇷", "Croatia", "HR"),
+    "386": ("🇸🇮", "Slovenia", "SI"),
+    "420": ("🇨🇿", "Czechia", "CZ"),
+    "421": ("🇸🇰", "Slovakia", "SK"),
+    "501": ("🇧🇿", "Belize", "BZ"),
+    "502": ("🇬🇹", "Guatemala", "GT"),
+    "503": ("🇸🇻", "El Salvador", "SV"),
+    "504": ("🇭🇳", "Honduras", "HN"),
+    "505": ("🇳🇮", "Nicaragua", "NI"),
+    "506": ("🇨🇷", "Costa Rica", "CR"),
+    "507": ("🇵🇦", "Panama", "PA"),
+    "509": ("🇭🇹", "Haiti", "HT"),
+    "591": ("🇧🇴", "Bolivia", "BO"),
+    "592": ("🇬🇾", "Guyana", "GY"),
+    "593": ("🇪🇨", "Ecuador", "EC"),
+    "595": ("🇵🇾", "Paraguay", "PY"),
+    "597": ("🇸🇷", "Suriname", "SR"),
+    "598": ("🇺🇾", "Uruguay", "UY"),
+    "673": ("🇧🇳", "Brunei", "BN"),
+    "675": ("🇵🇬", "Papua New Guinea", "PG"),
+    "852": ("🇭🇰", "Hong Kong", "HK"),
+    "853": ("🇲🇴", "Macau", "MO"),
+    "855": ("🇰🇭", "Cambodia", "KH"),
+    "856": ("🇱🇦", "Laos", "LA"),
+    "880": ("🇧🇩", "Bangladesh", "BD"),
+    "886": ("🇹🇼", "Taiwan", "TW"),
+    "960": ("🇲🇻", "Maldives", "MV"),
+    "961": ("🇱🇧", "Lebanon", "LB"),
+    "962": ("🇯🇴", "Jordan", "JO"),
+    "963": ("🇸🇾", "Syria", "SY"),
+    "964": ("🇮🇶", "Iraq", "IQ"),
+    "965": ("🇰🇼", "Kuwait", "KW"),
+    "966": ("🇸🇦", "Saudi Arabia", "SA"),
+    "967": ("🇾🇪", "Yemen", "YE"),
+    "968": ("🇴🇲", "Oman", "OM"),
+    "970": ("🇵🇸", "Palestine", "PS"),
+    "971": ("🇦🇪", "UAE", "AE"),
+    "972": ("🇮🇱", "Israel", "IL"),
+    "973": ("🇧🇭", "Bahrain", "BH"),
+    "974": ("🇶🇦", "Qatar", "QA"),
+    "975": ("🇧🇹", "Bhutan", "BT"),
+    "976": ("🇲🇳", "Mongolia", "MN"),
+    "977": ("🇳🇵", "Nepal", "NP"),
+    "992": ("🇹🇯", "Tajikistan", "TJ"),
+    "993": ("🇹🇲", "Turkmenistan", "TM"),
+    "994": ("🇦🇿", "Azerbaijan", "AZ"),
+    "995": ("🇬🇪", "Georgia", "GE"),
+    "996": ("🇰🇬", "Kyrgyzstan", "KG"),
+    "998": ("🇺🇿", "Uzbekistan", "UZ"),
+    "20": ("🇪🇬", "Egypt", "EG"),
+    "27": ("🇿🇦", "South Africa", "ZA"),
+    "30": ("🇬🇷", "Greece", "GR"),
+    "31": ("🇳🇱", "Netherlands", "NL"),
+    "32": ("🇧🇪", "Belgium", "BE"),
+    "33": ("🇫🇷", "France", "FR"),
+    "34": ("🇪🇸", "Spain", "ES"),
+    "36": ("🇭🇺", "Hungary", "HU"),
+    "39": ("🇮🇹", "Italy", "IT"),
+    "40": ("🇷🇴", "Romania", "RO"),
+    "41": ("🇨🇭", "Switzerland", "CH"),
+    "43": ("🇦🇹", "Austria", "AT"),
+    "44": ("🇬🇧", "United Kingdom", "GB"),
+    "45": ("🇩🇰", "Denmark", "DK"),
+    "46": ("🇸🇪", "Sweden", "SE"),
+    "47": ("🇳🇴", "Norway", "NO"),
+    "48": ("🇵🇱", "Poland", "PL"),
+    "49": ("🇩🇪", "Germany", "DE"),
+    "51": ("🇵🇪", "Peru", "PE"),
+    "52": ("🇲🇽", "Mexico", "MX"),
+    "53": ("🇨🇺", "Cuba", "CU"),
+    "54": ("🇦🇷", "Argentina", "AR"),
+    "55": ("🇧🇷", "Brazil", "BR"),
+    "56": ("🇨🇱", "Chile", "CL"),
+    "57": ("🇨🇴", "Colombia", "CO"),
+    "58": ("🇻🇪", "Venezuela", "VE"),
+    "60": ("🇲🇾", "Malaysia", "MY"),
+    "61": ("🇦🇺", "Australia", "AU"),
     "62": ("🇮🇩", "Indonesia", "ID"),
+    "63": ("🇵🇭", "Philippines", "PH"),
+    "64": ("🇳🇿", "New Zealand", "NZ"),
+    "65": ("🇸🇬", "Singapore", "SG"),
+    "66": ("🇹🇭", "Thailand", "TH"),
+    "81": ("🇯🇵", "Japan", "JP"),
+    "82": ("🇰🇷", "South Korea", "KR"),
+    "84": ("🇻🇳", "Vietnam", "VN"),
+    "86": ("🇨🇳", "China", "CN"),
+    "90": ("🇹🇷", "Turkey", "TR"),
+    "91": ("🇮🇳", "India", "IN"),
+    "92": ("🇵🇰", "Pakistan", "PK"),
+    "93": ("🇦🇫", "Afghanistan", "AF"),
+    "94": ("🇱🇰", "Sri Lanka", "LK"),
+    "95": ("🇲🇲", "Myanmar", "MM"),
+    "98": ("🇮🇷", "Iran", "IR"),
+    "1": ("🇺🇸", "USA / Canada", "US"),
+    "7": ("🇷🇺", "Russia / KZ", "RU"),
 }
+
+APP_INFO = [
+    (("tiktok",), "🎵", "TT"),
+    (("whatsapp", "wa"), "💬", "WA"),
+    (("instagram", "ig"), "📸", "IG"),
+    (("telegram", "tg"), "✈️", "TG"),
+    (("facebook", "fb", "meta"), "📘", "FB"),
+    (("google", "gmail", "youtube"), "🔴", "GOO"),
+    (("twitter", "x.com"), "✖️", "X"),
+    (("dana",), "💙", "DANA"),
+    (("ovo",), "💜", "OVO"),
+    (("gopay", "gojek"), "🟢", "GOPAY"),
+    (("shopee",), "🧡", "SPX"),
+]
 
 _tg_session = requests.Session()
 _tg_session.mount(
@@ -36,6 +214,33 @@ _tg_session.mount(
 
 def _log(tag: str, msg: str, color: str = ""):
     print(f"[{tag}] {msg}", flush=True)
+
+
+def get_all_secrets():
+    secrets = []
+    seen = set()
+    raw_items = []
+
+    if IVAS_SECRETS_RAW:
+        try:
+            parsed = json.loads(IVAS_SECRETS_RAW)
+            if isinstance(parsed, dict):
+                raw_items.extend(str(v).strip() for v in parsed.values())
+            elif isinstance(parsed, list):
+                raw_items.extend(str(v).strip() for v in parsed)
+            else:
+                raw_items.extend(s.strip() for s in IVAS_SECRETS_RAW.split(","))
+        except Exception:
+            raw_items.extend(s.strip() for s in IVAS_SECRETS_RAW.split(","))
+
+    if IVAS_WEBHOOK_SECRET:
+        raw_items.append(IVAS_WEBHOOK_SECRET)
+
+    for item in raw_items:
+        if item and item not in seen:
+            seen.add(item)
+            secrets.append(item)
+    return secrets
 
 
 def list_groups():
@@ -52,7 +257,8 @@ def list_groups():
 
 
 def verify_signature(raw_body: bytes, headers) -> bool:
-    if not VERIFY_SIGNATURE or not IVAS_WEBHOOK_SECRET:
+    secrets = get_all_secrets()
+    if not VERIFY_SIGNATURE or not secrets:
         return True
 
     sig = (
@@ -69,13 +275,16 @@ def verify_signature(raw_body: bytes, headers) -> bool:
     if sig.startswith("sha256="):
         sig = sig.split("=", 1)[1].strip()
 
-    expected_hex = hmac.new(
-        IVAS_WEBHOOK_SECRET.encode("utf-8"),
-        raw_body,
-        hashlib.sha256,
-    ).hexdigest()
+    for secret in secrets:
+        expected_hex = hmac.new(
+            secret.encode("utf-8"),
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+        if hmac.compare_digest(expected_hex.lower(), sig.lower()):
+            return True
 
-    return hmac.compare_digest(expected_hex.lower(), sig.lower())
+    return False
 
 
 def find_first_value(obj, keys):
@@ -120,10 +329,26 @@ def extract_otp(text: str) -> str:
 
 def detect_country_meta(num_str: str):
     digits = re.sub(r"\D", "", num_str or "")
-    for code, info in COUNTRY_INFO.items():
+    for code in sorted(COUNTRY_INFO.keys(), key=len, reverse=True):
         if digits.startswith(code):
-            return info
+            return COUNTRY_INFO[code]
     return ("🌐", "Unknown", "INTL")
+
+
+def detect_app_meta(sms_text: str, sender: str = ""):
+    bracket_match = re.search(r"\[([^\[\]]{2,25})\]", sms_text or "")
+    haystack = f"{bracket_match.group(1) if bracket_match else ''} {sender} {sms_text}".lower()
+
+    for keywords, icon, tag in APP_INFO:
+        if any(re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", haystack) for kw in keywords):
+            return icon, tag
+
+    if bracket_match:
+        raw_tag = re.sub(r"[^A-Za-z0-9]", "", bracket_match.group(1)).upper()[:6]
+        if raw_tag:
+            return "📱", raw_tag
+
+    return "📩", "SMS"
 
 
 def build_otp_message(
@@ -145,10 +370,11 @@ def build_otp_message(
 
     prefix = raw_num[:6] if len(raw_num) >= 6 else raw_num
     clean_sms = sms_text.replace("<#>", "").strip()
+    app_icon, app_tag = detect_app_meta(clean_sms, str((svc or {}).get("sender", "")))
 
-    # Baris 1: Header, Baris 2: Prefix, Baris 3: Isi SMS
+    # Baris 1: Header + App, Baris 2: Prefix, Baris 3: Isi SMS
     return (
-        f"¤ {flag} <b>{region_code}</b> ¤ {phone_formatted} ¤\n"
+        f"¤ {flag} <b>{region_code}</b> • {app_icon} <b>{app_tag}</b> ¤ {phone_formatted} ¤\n"
         f"<b>Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>\n"
         f"<blockquote>{clean_sms}</blockquote>"
     )
@@ -279,6 +505,7 @@ def webhook_ivas():
             or ""
         )
     else:
+        sender = "-"
         recipient = "-"
         sms_text = str(payload)
 
@@ -286,7 +513,7 @@ def webhook_ivas():
     flag, country, region_code = detect_country_meta(recipient)
     msg_text = build_otp_message(
         otp=otp,
-        svc={},
+        svc={"sender": sender},
         flag=flag,
         country=country,
         region_code=region_code,
@@ -300,4 +527,3 @@ def webhook_ivas():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False)
-    
